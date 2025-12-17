@@ -12,7 +12,7 @@
     </script>
     <meta charset="utf-8" />
 
-    <title>Explv's Map</title>
+    <title>Naughty</title>
 
     <link rel="apple-touch-icon" sizes="57x57" href="/favicon/apple-icon-57x57.png">
     <link rel="apple-touch-icon" sizes="60x60" href="/favicon/apple-icon-60x60.png">
@@ -73,11 +73,221 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.js"
         integrity="sha256-u74zWXS2T+G4E4NsM/R8gR8SaTJcq5a0TCks5m+AN9k=" crossorigin="anonymous"></script>
 
-    <!-- Try to load main JS module -->
-    <script type="module" src="/js/map.js"></script>
+    <!-- Authentication overlay styles and script. The app module will be loaded after successful login. -->
+    <style>
+        .auth-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);z-index:1050}
+        .auth-card{background:#fff;padding:24px;border-radius:6px;max-width:420px;width:90%;box-shadow:0 6px 18px rgba(0,0,0,.3);text-align:left}
+        .auth-card h3{margin-top:0;margin-bottom:12px}
+        .auth-card .form-group{margin-bottom:12px}
+        #auth-error{min-height:18px}
+        .top-auth-bar{position:fixed;top:0;left:0;right:0;height:44px;background:#222;color:#fff;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;z-index:1040}
+        .top-auth-bar .btn{margin-left:8px}
+        body { padding-top: 44px; }
+        /* Sessions sidebar overrides */
+        #sessions-panel{position:fixed;top:44px;right:0;bottom:0;width:320px;background:#121212;border-left:1px solid #222;z-index:1045;padding:12px;display:none;overflow-y:auto;box-shadow:-4px 0 12px rgba(0,0,0,0.5)}
+        #sessions-panel h4{margin-top:0;margin-bottom:8px;color:#fff}
+        #sessions-list .session-entry{background:transparent}
+        #sessions-list .session-entry.active{background:#171717;border-left:3px solid #ff5722;padding-left:6px}
+        /* Ensure map popups render above sidebar and controls */
+        .leaflet-container .leaflet-popup { z-index: 99999 !important; }
+        .leaflet-container .leaflet-popup-pane { z-index: 99999 !important; }
+        /* Dark theme for leaflet popup wrapper and tip to remove white border */
+        .leaflet-container .leaflet-popup-content-wrapper {
+            background: #1b1b1b !important;
+            color: #fff !important;
+            border-radius: 6px !important;
+            border: 1px solid rgba(255,255,255,0.04) !important;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.6) !important;
+        }
+        .leaflet-container .leaflet-popup-content {
+            background: transparent !important;
+            color: #fff !important;
+        }
+        .leaflet-container .leaflet-popup-tip-container .leaflet-popup-tip {
+            background: #1b1b1b !important;
+            box-shadow: none !important;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #fff !important;
+            text-shadow: none !important;
+            background: transparent !important;
+            border: none !important;
+        }
+        /* Session popup styling to ensure visibility on dark theme */
+        .session-popup { color: #fff !important; background: #1b1b1b !important; padding: 8px; border-radius: 6px; }
+        .session-popup .tab-panel { font-size: 13px; color: #fff !important; background: transparent !important; }
+    </style>
+
+    <style>
+        /* OSRS-like skills grid for session popup */
+        .skills-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+        .skill-box{display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;background:linear-gradient(180deg,#2b2b20, #191710);box-shadow:inset 0 1px 0 rgba(255,255,255,0.02);color:#fff;border:1px solid rgba(0,0,0,0.6)}
+        .skill-icon{width:36px;height:36px;border-radius:4px;background:#2b2b2b;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:12px;border:1px solid rgba(255,255,255,0.04);flex:0 0 36px}
+        .skill-icon img{width:28px;height:28px;display:block}
+        .skill-meta{flex:1;display:flex;flex-direction:column}
+        .skill-name{font-size:12px;color:#e6e6e6}
+        .skill-level{font-size:12px;color:#ffd27f;font-weight:700}
+        /* Removed progress bar - simpler OSRS style */
+        .skills-total{margin-top:8px;text-align:center;font-weight:700;color:#ffd27f;padding:6px 0}
+        @media (max-width:600px){ .skills-grid{grid-template-columns:repeat(2,1fr)} }
+    </style>
+    <style>
+        /* Inventory grid styling */
+        .items-grid{display:grid;grid-template-columns:repeat(6,44px);gap:6px;justify-content:start}
+        .item-box{width:44px;height:44px;border-radius:4px;background:#1a1a1a;border:1px solid rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;position:relative}
+        .item-icon img{width:36px;height:36px;display:block}
+        .item-qty{position:absolute;right:2px;bottom:2px;background:rgba(0,0,0,0.6);color:#fff;padding:1px 4px;border-radius:3px;font-size:11px}
+    </style>
+
+    <script>
+        (function(){
+            const TOKEN_KEY = 'jwtToken';
+
+            function parseJwt(token){
+                try{
+                    const parts = token.split('.');
+                    if(parts.length !== 3) return null;
+                    const payload = parts[1].replace(/-/g,'+').replace(/_/g,'/');
+                    const json = atob(payload);
+                    return JSON.parse(decodeURIComponent(escape(json)));
+                }catch(e){ return null; }
+            }
+
+            function tokenValid(token){
+                const p = parseJwt(token);
+                if(!p || !p.exp) return false;
+                return (p.exp * 1000) > Date.now();
+            }
+
+            async function login(apiKey){
+                try{
+                    const res = await fetch(localStorage.getItem('apiHost') + '/api/auth/token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ apiKey: apiKey })
+                    });
+                    if(!res.ok) throw new Error('HTTP ' + res.status);
+                    const data = await res.json();
+                    if(data && data.token){
+                        console.log('Login successful, token received: ' + data.token);
+                        localStorage.setItem(TOKEN_KEY, data.token);
+                        return true;
+                    }
+                    return false;
+                }catch(e){
+                    console.error('Login error', e);
+                    return false;
+                }
+            }
+
+            function showOverlay(){
+                const el = document.getElementById('auth-overlay'); if(el) el.style.display = 'flex';
+                hideTopBar();
+            }
+            function hideOverlay(){
+                const el = document.getElementById('auth-overlay'); if(el) el.style.display = 'none';
+            }
+
+            function showTopBar(){ const el = document.getElementById('top-auth-bar'); if(el) el.style.display = 'flex'; }
+            function hideTopBar(){ const el = document.getElementById('top-auth-bar'); if(el) el.style.display = 'none'; }
+
+            function loadApp(){
+                const s = document.createElement('script');
+                s.type = 'module';
+                s.src = '/js/map.js';
+                document.head.appendChild(s);
+            }
+
+            document.addEventListener('DOMContentLoaded', ()=>{
+                const token = localStorage.getItem(TOKEN_KEY);
+                const form = document.getElementById('auth-form');
+                const hostInput = document.getElementById('server-host');
+                const keyInput = document.getElementById('apiKey');
+                const errorEl = document.getElementById('auth-error');
+                const clearBtn = document.getElementById('auth-clear');
+
+                if(token && tokenValid(token)){
+                    hideOverlay();
+                    showTopBar();
+                    loadApp();
+                    return;
+                }
+
+                showOverlay();
+
+                form.addEventListener('submit', async (ev)=>{
+                    ev.preventDefault();
+
+                    if (!form) return;
+
+                    const host = hostInput.value.trim().replace(/\/$/, '');
+                    const apiKey = keyInput.value.trim();
+
+                    if (!host || !apiKey) {
+                      errorEl.textContent = 'Server host and API key are required';
+                      return;
+                    }
+
+                    localStorage.setItem('apiHost', host);
+                    document.getElementById('auth-submit').disabled = true;
+                    errorEl.textContent = '';
+                    const ok = await login(apiKey);
+                    document.getElementById('auth-submit').disabled = false;
+                    if(ok){ hideOverlay(); showTopBar(); loadApp(); }
+                    else { document.getElementById('auth-error').textContent = 'Login failed — check API key and server.'; }
+                });
+
+                document.getElementById('auth-clear').addEventListener('click', ()=>{
+                    localStorage.removeItem(TOKEN_KEY);
+                    errorEl.textContent = 'Token cleared. Enter a new API key.';
+                    showOverlay();
+                });
+
+                const logoutBtn = document.getElementById('top-logout');
+                if(logoutBtn){
+                    logoutBtn.addEventListener('click', ()=>{
+                        localStorage.removeItem(TOKEN_KEY);
+                        showOverlay();
+                    });
+                }
+            });
+
+            window.getJwtToken = function(){ return localStorage.getItem(TOKEN_KEY); };
+        })();
+    </script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/sessions.js" defer></script>
 </head>
 
 <body>
+    <div id="top-auth-bar" class="top-auth-bar" style="display:none">
+        <span style="flex:1;">Signed in</span>
+        <button id="toggle-sessions" class="btn btn-xs btn-info">Sessions</button>
+        <button id="top-logout" class="btn btn-xs btn-warning">Logout</button>
+    </div>
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-card">
+            <h3>Sign in</h3>
+            <form id="auth-form">
+                <div class="form-group">
+                    <input
+                      id="server-host"
+                      type="text"
+                      class="form-control"
+                      placeholder="https://localhost:8080"
+                      required
+                    />
+                    <input id="apiKey" type="text" class="form-control" placeholder="API Key" required autofocus>
+                </div>
+                <div class="form-group">
+                    <button id="auth-submit" type="submit" class="btn btn-primary">Login</button>
+                    <button id="auth-clear" type="button" class="btn btn-default">Clear token</button>
+                </div>
+                <div id="auth-error" style="color:#d9534f"></div>
+            </form>
+        </div>
+    </div>
+
     <div class="container-fluid" id="container">
         <div class="col-lg-12 col-md-12 col-sm-12 col-xs-12" id="map-container">
             <div id="map"></div>
@@ -119,6 +329,16 @@
                     </div>
                 </div>
             </form>
+        </div>
+        <div class="slide-panel" id="sessions-panel">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px 8px 8px;border-bottom:1px solid #222;margin-bottom:8px">
+                <h4 style="margin:0;color:#fff">Active Sessions</h4>
+                <div>
+                    <button id="refresh-sessions" class="btn btn-xs btn-primary">Refresh</button>
+                    <button id="sessions-close" class="btn btn-xs btn-default">Close</button>
+                </div>
+            </div>
+            <div id="sessions-list"></div>
         </div>
     </div>
 </body>

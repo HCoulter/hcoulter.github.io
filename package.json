@@ -1,7 +1,7 @@
 {
-  "name": "explv.github.io",
+  "name": "admin panel",
   "version": "1.0.0",
-  "description": "Explv's Map",
+  "description": "Naughty Map",
   "type": "module",
   "main": "index.js",
   "scripts": {

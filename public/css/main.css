@@ -271,3 +271,36 @@ input[type="number"] {
               user-select: none; /* Non-prefixed version, currently
                                     supported by Chrome and Opera */
 }
+
+.items-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr); /* 👈 4 items per row */
+    gap: 8px; /* spacing between items */
+}
+
+.item-box {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1; /* keeps square slots */
+    background: #2b2b2b;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.item-icon img {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated; /* OSRS-style icons */
+}
+
+.item-qty {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0 0 2px black;
+}
