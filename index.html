@@ -161,7 +161,7 @@
 
             async function login(apiKey){
                 try{
-                    const res = await fetch(localStorage.getItem('apiHost') + '/api/auth/token', {
+                    const res = await fetch(localStorage.getItem('apiHost') + '/api/auth/token/admin', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ apiKey: apiKey })
